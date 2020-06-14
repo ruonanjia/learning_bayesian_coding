@@ -1,0 +1,421 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# install.packages("rstan", repos = "http://cran.rstudio.com/")
+```
+
+```{r}
+# install.packages(c("devtools","mvtnorm","loo","coda", "dagitty"))
+# library(devtools)
+# devtools::install_github("rmcelreath/rethinking")
+```
+
+```{r}
+library(rethinking)
+library(ggplot2)
+# install.packages("ggpubr")
+library(ggpubr)
+
+```
+
+function
+```{r}
+data_summary <- function(data, varname, groupnames){
+  # Function to calculate the mean and the standard error
+  # for each group
+  #+++++++++++++++++++++++++
+  # data : a data frame
+  # varname : the name of a column containing the variable
+  #to be summariezed
+  # groupnames : vector of column names to be used as
+  # grouping variables
+  
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE)/sqrt(length(x[[col]])))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+  return(data_sum)
+}
+```
+
+make the task
+```{r}
+risk.uniq <- c(0.13, 0.25, 0.38, 0.5, 0.62, 0.75, 0.87)
+ambig.uniq <- c(0.24, 0.5, 0.74, 1)
+
+value.uniq <- c(5, 6, 7, 8, 10, 12, 14, 16, 19, 23, 27, 31, 37, 44, 52, 61, 73, 86, 101, 120)
+
+rep.times <- 1
+
+# make unique trials with combinations of uncertainty level and value
+risk.level <- c(risk.uniq, rep(0.5, times = length(ambig.uniq))) 
+ambig.level <- c(rep(0, times = length(risk.uniq)), ambig.uniq)
+
+risk.trials <- expand.grid(risk.uniq, value.uniq)
+colnames(risk.trials) <- c("risk", "value")
+risk.trials$ambig <- 0
+
+ambig.trials <- expand.grid(ambig.uniq, value.uniq)
+colnames(ambig.trials) <- c("ambig", "value")
+ambig.trials$risk <- 0.5
+
+all.trials <- rbind(risk.trials, ambig.trials)
+
+# fixed option
+all.trials$risk.fixed <- 1
+all.trials$ambig.fixed <- 0
+all.trials$value.fixed <- 5
+
+# repeat trials
+trials <- data.frame(sapply(all.trials, rep.int, times=rep.times))
+
+# number of trials
+nrow(trials)
+```
+
+Define model
+```{r}
+risk <- trials$risk
+ambig <- trials$ambig
+value <- trials$value
+
+risk.fixed <- trials$risk.fixed
+ambig.fixed <- trials$ambig.fixed
+value.fixed <- trials$value.fixed
+
+# m.choice <- alist(
+#   
+#   choice ~ dbern(1, prob), # sample from bernoulli distribution
+#   prob <- 1 / (1 + exp(slope*(uL-uR))), # choice probablity of the lottery
+#   uL <- (risk - beta * (ambig/2)) * v ^alpha, # subjective value of the lottery
+#   uR <- (risk.ref - beta * (ambig.ref/2)) * v.ref ^alpha, # subjective value of the reference
+#   
+#   # priors
+#   alpha ~ dnorm(1, 1),
+#   beta ~ dnorm(0, 1),
+#   slope ~ dnorm(0, 2)
+# )
+
+```
+
+priors
+```{r}
+set.seed(2020)
+
+# number of samples (imagninary participants)
+n <- 20
+
+# sample parameters from prior
+# risk attitude
+alpha <- rnorm(n, 1, 1)
+# ambiguity attitude
+beta <- rnorm(n, 0, 1)
+# inverse temperature
+slope <- rnorm(n, -2, 3)
+
+# plot
+hist(alpha, nclass =10)
+# dens(alpha, add = TRUE)
+hist(beta, nclass =10)
+hist(slope, nclass =10)
+```
+
+
+Function to simuate choice of n participant
+```{r}
+# simulate choices of n participants
+simulate_choice <- function(n, trials, alpha, beta, slope) {
+  
+  # simulate all trials behavior for each sample of parameters (aka each imaginary participant)
+  for (i in 1:n) {
+    uL <- (risk - beta[i] * (ambig/2)) * value ^alpha[i] # subjective value of the lottery
+    uR <- (risk.fixed - beta[i] * (ambig.fixed/2)) * value.fixed ^alpha[i] # subjective value of the reference
+    prob <- 1 / (1 + exp(slope[i]*(uL-uR))) # choice probablity of the lottery
+    
+    choice <- numeric(0)
+    choice <- c(choice, 1:nrow(trials))
+    
+    for (trial.idx in 1:nrow(trials)){
+      choice[trial.idx] <- rbern(1, prob[trial.idx]) # choice sampled from bernoulli distribution
+    }
+    
+    if (i == 1){
+      simulation <- data.frame(id = rep(c(i), nrow(trials)), risk, ambig, value, risk.fixed, ambig.fixed, value.fixed, choice, alpha = rep(c(alpha[i]), nrow(trials)), beta = rep(c(beta[i]), nrow(trials)), slope = rep(c(slope[i]), nrow(trials)))
+      
+    } else {
+      simulation <- rbind(simulation, data.frame(id = rep(c(i), nrow(trials)), risk, ambig, value, risk.fixed, ambig.fixed, value.fixed, choice, alpha = rep(c(alpha[i]), nrow(trials)), beta = rep(c(beta[i]), nrow(trials)), slope = rep(c(slope[i]), nrow(trials))))
+    }
+  }
+  
+  simulation$id <- as.factor(simulation$id)
+  
+  
+  return(simulation)
+}
+```
+
+```{r}
+simulation <- simulate_choice(n,trials,alpha,beta,slope)
+View(simulation)
+
+```
+
+Function to visualize individual subject choice data
+```{r}
+plot_choice <- function(simulation,n) {
+  for (sub_idx in 1:n) {
+    
+    # single subject data
+    simulation.sub <- simulation[simulation$id == sub_idx,]
+    simulation.sub$value <- as.factor(simulation.sub$value)
+    simulation.sub$risk <- as.factor(simulation.sub$risk)
+    simulation.sub$ambig <- as.factor(simulation.sub$ambig)
+    
+    # monetary risky
+    data_plot <- data_summary(simulation.sub[simulation.sub$ambig == 0,], varname = "choice", groupnames = c("value", "risk"))
+    
+    p1 <- ggplot(data_plot, aes(x=value, y=risk, fill=choice)) + 
+      geom_tile(color = "white")+
+      scale_x_discrete(breaks = value.uniq) +
+      # scale_y_discrete(breaks = risk.uniq) +
+      scale_fill_gradient(limits = c(0,1)) +
+      theme(panel.grid = element_blank(),
+            panel.background = element_blank()) +
+      ggtitle(paste("Monetary Risky, Sub", as.character(sub_idx), ", alpha=", round(simulation.sub$alpha[1],2), ", slope=", round(simulation.sub$slope[1], 2))) +
+      xlab("Value ($)") + ylab("Risk Level")
+    
+    # monetary ambiguous
+    data_plot <- data_summary(simulation.sub[simulation.sub$ambig != 0,], varname = "choice", groupnames = c("value", "ambig"))
+    
+    p2 <- ggplot(data_plot, aes(x=value, y=ambig, fill=choice)) + 
+      geom_tile(color = "white")+
+      scale_x_discrete(breaks = value.uniq) +
+      scale_y_discrete(breaks = ambig.uniq) +
+      scale_fill_gradient(limits = c(0,1)) +
+      theme(panel.grid = element_blank(),
+            panel.background = element_blank()) +
+      ggtitle(paste("Monetary Ambiguous, beta=", round(simulation.sub$beta[1],2))) +
+      xlab("Value ($)") + ylab("Ambiguity Level")
+    
+    figure <- ggarrange(p1,p2,ncol = 1, nrow = 2) + border(size = 2)
+    
+    print(figure)
+    
+    # annotate_figure(figure,
+    #                 top = text_grob(paste("Subject", sub_idx))
+    #                 )
+    
+  }  
+}
+
+```
+
+Plot inindividual subject's choice
+```{r}
+plot_choice(simulation,n)
+```
+
+
+
+Risk attitude affected by symptoms
+
+Generate participants (CAPS, PTSD symptom)
+```{r}
+set.seed(2020)
+
+# number of participants
+n.p <- 30
+# generate n participants with PTSD symptom severity
+caps <- runif(n.p, min = 0, max = 100)
+# standardize
+caps.z <- scale(caps)
+hist(caps, nclass = 10)
+```
+
+Priors
+```{r}
+# number of simulation
+n.s <- 10
+
+# sample parameters from prior
+
+# risk attitude, affected by CAPS (linear)
+# m <- rnorm(n.s, 1, 1)
+# k <- rnorm(n.s, 0, 1)
+# sigma <- runif(n.s, 0, 1)
+
+m <- rnorm(n.s, 0.5, 0.2)
+k <- -rlnorm(n.s, 0, 0.5)
+sigma <- runif(n.s, 0, 1)
+
+alpha <- matrix(, nrow = n.s, ncol = n.p)
+for (i in 1:n.s){ # number of simulation          
+  miu <- m[i] + k[i]*caps.z
+  for (j in 1:n.p){ # number of participants in each simulation
+    alpha[i,j] <- rnorm(1, miu[j], sigma[i]) 
+  }
+}
+
+# ambiguity attitude
+beta <- matrix(, nrow = n.s, ncol = n.p)
+for (i in 1:n.s) {
+  beta[i, ] <- rnorm(n.p, 0, 1)
+}
+
+
+# inverse temperature
+slope <- matrix(, nrow = n.s, ncol = n.p)
+for (i in 1:n.s) {
+  slope[i, ] <- rnorm(n.p, -3, 1)
+}
+
+# to summarize, there are 5 parameters to generate the choice behavior, and each is assumed a prior
+# m (average of risk attitude), k(linear slope of how CAPS influence alpha), sigma(variace of alpha's)
+# beta (ambiguity attitude), slope (inverse temperature)
+```
+
+Plot priors of k (linear slope of how CAPS influence alpha) and m (average of risk attitude)
+```{r}
+hist(k)
+hist(m)
+```
+
+Plot all simulation
+Risky attitude and caps
+```{r}
+plot(caps, alpha[1,], type = "n",  ylim=c(0, 2), xlim=c(0, 100),ylab = "alpha")
+for (i in 1:n.s){
+  lines(caps, k[i]*caps.z+m[i], col = col.alpha("black", 0.1))
+}
+```
+
+Look at the first simulation
+simulate choice
+```{r}
+sim_idx = 1
+hist(alpha[sim_idx,])
+hist(beta[sim_idx,])
+hist(slope[sim_idx,])
+
+simulation.caps <- simulate_choice(n.p, trials, alpha[sim_idx,], beta[sim_idx,], slope[sim_idx,])
+
+# View(simulation.caps)
+```
+
+Function to plot one simulation 
+```{r}
+plot_choice <- function(simulation,caps) {
+  n = length(caps)
+  for (sub_idx in 1:n) {
+    
+    # single subject data
+    simulation.sub <- simulation[simulation$id == sub_idx,]
+    simulation.sub$value <- as.factor(simulation.sub$value)
+    simulation.sub$risk <- as.factor(simulation.sub$risk)
+    simulation.sub$ambig <- as.factor(simulation.sub$ambig)
+    
+    # monetary risky
+    data_plot <- data_summary(simulation.sub[simulation.sub$ambig == 0,], varname = "choice", groupnames = c("value", "risk"))
+    
+    p1 <- ggplot(data_plot, aes(x=value, y=risk, fill=choice)) + 
+      geom_tile(color = "white")+
+      scale_x_discrete(breaks = value.uniq) +
+      # scale_y_discrete(breaks = risk.uniq) +
+      scale_fill_gradient(limits = c(0,1)) +
+      theme(panel.grid = element_blank(),
+            panel.background = element_blank()) +
+      ggtitle(paste("Monetary Risky, CAPS", round(caps[sub_idx],2), ", alpha=", round(simulation.sub$alpha[1],2), ", slope=", round(simulation.sub$slope[1], 2))) +
+      xlab("Value ($)") + ylab("Risk Level")
+    
+    # monetary ambiguous
+    data_plot <- data_summary(simulation.sub[simulation.sub$ambig != 0,], varname = "choice", groupnames = c("value", "ambig"))
+    
+    p2 <- ggplot(data_plot, aes(x=value, y=ambig, fill=choice)) + 
+      geom_tile(color = "white")+
+      scale_x_discrete(breaks = value.uniq) +
+      scale_y_discrete(breaks = ambig.uniq) +
+      scale_fill_gradient(limits = c(0,1)) +
+      theme(panel.grid = element_blank(),
+            panel.background = element_blank()) +
+      ggtitle(paste("Monetary Ambiguous, beta=", round(simulation.sub$beta[1],2))) +
+      xlab("Value ($)") + ylab("Ambiguity Level")
+    
+    figure <- ggarrange(p1,p2,ncol = 1, nrow = 2) + border(size = 2)
+    
+    print(figure)
+    
+    # annotate_figure(figure,
+    #                 top = text_grob(paste("Subject", sub_idx))
+    #                 )
+    
+  }  
+}
+```
+
+
+Plot the risk attitudes and caps
+```{r}
+participant <- data.frame(caps,alpha = alpha[sim_idx,], beta = beta[sim_idx,], slope = slope[sim_idx,], k = k[sim_idx], m = m[sim_idx], sigma = sigma[sim_idx])
+
+ggplot(data = participant, aes(x=caps, y=alpha)) +
+  geom_point() +
+  geom_line(aes(caps, k[1]*caps.z + m[1])) +
+  ggtitle(paste("Risk attitude, alpha =", round(k[1],2), "* zscored caps +", round(m[1],2) ))
+
+ggplot(data = participant, aes(x=caps, y=beta)) +
+  geom_point() +
+  ggtitle(("Ambiguity attitude"))
+
+ggplot(data = participant, aes(x=caps, y=slope)) +
+  geom_point() +
+  ggtitle(("Inverse temperature"))
+```
+
+
+
+```{r}
+plot_choice(simulation.caps, caps)
+```
+
+
+Calculate choice (model free attitude)
+```{r}
+
+for (i in 1:n.p){
+  participant$risk_choice[i] = mean(simulation.caps$choice[simulation.caps$id==i & simulation.caps$ambig==0])
+  
+participant$ambig_choice_corr[i] = mean(simulation.caps$choice[simulation.caps$id==i & simulation.caps$ambig!=0]) - mean(simulation.caps$choice[simulation.caps$id==i & simulation.caps$ambig==0 & simulation.caps$risk==0.5])
+}
+
+```
+
+Plot caps and choice
+```{r}
+ggplot(participant, aes(x=caps, y=risk_choice)) +
+  geom_point() +
+  ggtitle("Choice of risky trials")
+
+ggplot(participant, aes(x=caps, y=ambig_choice_corr)) +
+  geom_point() +
+  ggtitle("Choice of Ambiguous trials (Corrected)")
+```
+
+All simulation
+```{r}
+
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+

@@ -1,0 +1,267 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+install.packages("rstan", repos = "http://cran.rstudio.com/")
+```
+
+```{r}
+install.packages(c("devtools","mvtnorm","loo","coda", "dagitty"))
+library(devtools)
+devtools::install_github("rmcelreath/rethinking")
+```
+
+```{r}
+library(rethinking)
+```
+
+load data
+```{r}
+data("Howell1")
+d <- Howell1
+```
+
+Problem 1
+fit model
+```{r}
+d <- Howell1[Howell1$age > 18,]
+
+xbar <- mean(d$weight)
+
+# specify model
+m1 <- alist(
+  height ~ dnorm(mu, sigma),
+  mu <- a + b*(weight - xbar),
+  a ~ dnorm(178, 20),
+  b ~ dlnorm(0, 1),
+  sigma ~ dunif(0, 50)
+)
+
+# fit
+m1.f <- quap(m1, data = d)
+```
+
+sample posterior
+```{r}
+# sample parameters from posterior
+post <- extract.samples(m1.f, n = 10000)
+str(post)
+
+# weight to predict
+predict.x <- c(45, 40, 65, 31, 53)
+data.predict <- data.frame(x = predict.x)
+View(data.predict)
+
+# sample y from posterior
+mu <- matrix(NA, nrow = 10000, ncol = length(data.predict$x))
+y <- matrix(NA, nrow = 10000, ncol = length(data.predict$x))
+
+for (i in 1:10000) {
+  mu[i, ] <- post$a[i] + post$b[i] * (data.predict$x - xbar)
+  for (j in 1:length(data.predict$x)) {
+    y[i, j] <- rnorm(1, mu[i, j], post$sigma[i])
+  }
+}
+
+# or use the sim() function
+# y <- sim(m1.f, data = data.frame(weight = predict.x))
+str(y)
+
+# plot
+for (i in 1:length(data.predict$x)) {
+  plot(density(y[, i]), col = "blue")
+}  
+
+# mean and compatibility interval  
+# mean
+data.predict$y <- colMeans(y)
+data.predict$y
+
+# 89% compatibility interval
+ci_89 <- apply(y, 2, quantile, c(0.055, 0.945))
+# or use the PI function
+# ci_89 <- apply(y, 2, PI, 0.89)
+ci_89
+
+data.predict$ci_89l <- ci_89[1,]
+data.predict$ci_89u <- ci_89[2,]
+
+data.predict
+```
+
+Problem 2
+
+Visualize
+```{r}
+d <- Howell1
+d$weight.log <- log(d$weight)
+
+# plot, looks linear?
+plot(d$weight.log, d$height, col = col.alpha(rangi2,0.5))
+plot(d$weight, d$height, col = col.alpha(rangi2,0.5))
+```
+
+fit model
+```{r}
+xbar <- mean(d$weight.log)
+
+m2 <- alist(
+  height ~ dnorm(mu, sigma),
+  mu <- a + b*(weight.log - xbar),
+  a ~ dnorm(178, 20),
+  b ~ dlnorm(0, 1),
+  sigma ~ dunif(0, 50)
+)
+
+m2.f <- quap(m2, data = d)
+```
+
+plot posterior prediction
+```{r}
+weight.predict <- seq(5, 65, 2.5)
+weight.log.predict <- log(seq(5, 65, 2.5))
+height.predict <- sim(m2.f, data = data.frame(weight.log = weight.log.predict))
+
+# look at size
+str(height.predict)
+
+# plot predicted height
+plot(d$weight.log, d$height, type = "n")
+
+for (i in 1:100) {
+  points(weight.log.predict, height.predict[i, ], pch=16, col = col.alpha(rangi2,0.1))
+}
+
+# plot raw data and fitted line with 89% interval
+height.predict.mean <- apply(height.predict, 2, mean)
+height.predict.PI <- apply(height.predict, 2, PI, prob = 0.89)
+plot(d$weight.log, d$height, col = col.alpha(rangi2,0.5))
+lines(weight.log.predict, height.predict.mean)
+shade(height.predict.PI, weight.log.predict)
+
+```
+
+plot posterior prediction, (weight instead of weight.log on x axis)
+```{r}
+weight.predict <- seq(5, 65, 2.5)
+weight.log.predict <- log(seq(5, 65, 2.5))
+# weight.log.predict <-d$weight.log
+height.predict <- sim(m2.f, data = data.frame(weight.log = weight.log.predict))
+
+# look at size
+str(height.predict)
+
+# plot predicted height
+plot(d$weight, d$height, type = "n")
+
+for (i in 1:100) {
+  points(weight.predict, height.predict[i, ], pch=16, col = col.alpha(rangi2,0.1))
+}
+
+# plot raw data and fitted line with 89% interval
+height.predict.mean <- apply(height.predict, 2, mean)
+height.predict.PI <- apply(height.predict, 2, PI, prob = 0.89)
+plot(d$weight, d$height, col = col.alpha(rangi2,0.5))
+lines(weight.predict, height.predict.mean)
+shade(height.predict.PI, weight.predict)
+
+```
+Problem 3
+
+fit parabola model
+```{r}
+d$weight_s <- (d$weight - mean(d$weight))/sd(d$weight)
+d$weight_s2 <- d$weight_s^2
+
+m.parab <- alist(
+  height ~ dnorm(mu, sigma),
+  mu <- a + b1*weight_s + b2*weight_s2,
+  a ~ dnorm(178, 20),
+  b1 ~ dlnorm(0, 1),
+  b2 ~ dlnorm(0, 1),
+  sigma ~ dunif(0, 50) 
+)
+
+# fit
+m.parab.f <- quap(m.parab, data = d)
+```
+
+simulate, very random priors
+```{r}
+set.seed(2020)
+
+# mean of the sample weight
+xbar <- mean(d$weight)
+
+# min(d$weight)
+# max(d$weight)
+# mean(d$height)
+
+# pick weight to predict
+weight.predict <- seq(5, 65, 2.5)
+weight.predict
+
+# number of samples
+n <- 200
+
+# sample parameters from prior
+# very uninformative prior
+a <- rnorm(n, 178, 20)
+b1 <- rnorm(n, 0, 1)
+b2 <- rnorm(n, 0, 1)
+
+plot(d$weight, d$height, type = "n", ylim=c(50, 240), xlim=c(0, 65), yaxt="n")
+# plot(d$weight, d$height, col=col.alpha(rangi2, 0.3), ylim=c(50, 240), xlim=c(0, 65), yaxt="n")
+
+axis(side=2, at=seq(60, 240, 20) )
+
+for (i in 1:n) {
+  mu <- a[i] + b1[i]*(weight.predict - xbar) + b2[i]*(weight.predict - xbar)^2
+  lines(weight.predict, mu, col = col.alpha("black", 0.1))
+}
+```
+
+simulate, tweaking priors
+```{r}
+set.seed(2020)
+
+# mean of the sample weight
+xbar <- mean(d$weight)
+
+# min(d$weight)
+# max(d$weight)
+# mean(d$height)
+
+# pick weight to predict
+weight.predict <- seq(5, 65, 2.5)
+
+# number of samples
+n <- 200
+
+# sample parameters from prior
+# try differet priors
+a <- rnorm(n, 150, 10)
+# b1 <- rlnorm(n, 0, 1)
+# b2 <- rlnorm(n, 0, 1)
+b1 <- rnorm(n, 2, 0.05)
+b2 <- rnorm(n, -0.05, 0.0005)
+
+# plot(d$weight, d$height, type = "n", ylim=c(50, 240), xlim=c(0, 65), yaxt="n")
+plot(d$weight, d$height, col=col.alpha(rangi2, 0.3), ylim=c(50, 240), xlim=c(0, 65), yaxt="n")
+
+axis(side=2, at=seq(60, 240, 20) )
+
+for (i in 1:n) {
+  mu <- a[i] + b1[i]*(weight.predict - xbar) + b2[i]*(weight.predict - xbar)^2
+  lines(weight.predict, mu, col = col.alpha("black", 0.1))
+}
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
