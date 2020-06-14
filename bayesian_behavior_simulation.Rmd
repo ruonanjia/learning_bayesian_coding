@@ -132,7 +132,7 @@ plot_choice <- function(simulation,n) {
 
 Function to plot one simulation (includeing CAPS)
 ```{r}
-plot_choice <- function(simulation,caps) {
+plot_choice_caps <- function(simulation, caps) {
   n = length(caps)
   for (sub_idx in 1:n) {
     
@@ -229,18 +229,18 @@ risk.fixed <- trials$risk.fixed
 ambig.fixed <- trials$ambig.fixed
 value.fixed <- trials$value.fixed
 
-# m.choice <- alist(
-#   
-#   choice ~ dbern(1, prob), # sample from bernoulli distribution
-#   prob <- 1 / (1 + exp(slope*(uL-uR))), # choice probablity of the lottery
-#   uL <- (risk - beta * (ambig/2)) * v ^alpha, # subjective value of the lottery
-#   uR <- (risk.ref - beta * (ambig.ref/2)) * v.ref ^alpha, # subjective value of the reference
-#   
-#   # priors
-#   alpha ~ dnorm(1, 1),
-#   beta ~ dnorm(0, 1),
-#   slope ~ dnorm(0, 2)
-# )
+m.choice <- alist(
+
+  choice ~ dbern(1, prob), # sample from bernoulli distribution
+  prob <- 1 / (1 + exp(slope*(uL-uR))), # choice probablity of the lottery
+  uL <- (risk - beta * (ambig/2)) * v ^alpha, # subjective value of the lottery
+  uR <- (risk.ref - beta * (ambig.ref/2)) * v.ref ^alpha, # subjective value of the reference
+
+  # priors
+  alpha ~ dnorm(1, 1),
+  beta ~ dnorm(0, 1),
+  slope ~ dnorm(-2, 3)
+)
 
 ```
 
@@ -312,6 +312,7 @@ n.s <- 10
 
 m <- rnorm(n.s, 0.5, 0.2)
 k <- -rlnorm(n.s, 0, 0.5)
+
 sigma <- runif(n.s, 0, 2)
 
 alpha <- matrix(, nrow = n.s, ncol = n.p)
@@ -336,7 +337,7 @@ for (i in 1:n.s) {
 }
 
 # to summarize, there are 5 parameters to generate the choice behavior, and each is assumed a prior
-# m (average of risk attitude), k(linear slope of how CAPS influence alpha), sigma(variace of alpha's)
+  # m (average of risk attitude), k(linear slope of how CAPS influence alpha), sigma(variace of alpha's)
 # beta (ambiguity attitude), slope (inverse temperature)
 ```
 
@@ -415,8 +416,34 @@ ggplot(participant, aes(x=caps, y=ambig_choice_corr)) +
   ggtitle("Choice of Ambiguous trials (Corrected)")
 ```
 
-All simulation
+Look at 5 simulations
 ```{r}
+# plot model risk attitude and caps
+plot(caps, alpha[1,], type = "n",  ylim=c(0, 2), xlim=c(0, 100),ylab = "alpha")
+for (i in 1:5){
+  lines(caps, k[i]*caps.z+m[i], col = col.alpha("black", 0.1))
+}
+
+# plot choice behavior and caps
+for (sim_idx in 1:5) {
+  simulation.caps <- simulate_choice(n.p, trials, alpha[sim_idx,], beta[sim_idx,], slope[sim_idx,])
+  
+  participant <- data.frame(caps,alpha = alpha[sim_idx,], beta = beta[sim_idx,], slope = slope[sim_idx,], k = k[sim_idx], m = m[sim_idx], sigma = sigma[sim_idx])
+  
+  
+  for (i in 1:n.p){
+    participant$risk_choice[i] = mean(simulation.caps$choice[simulation.caps$id==i & simulation.caps$ambig==0])
+    
+  participant$ambig_choice_corr[i] = mean(simulation.caps$choice[simulation.caps$id==i & simulation.caps$ambig!=0]) - mean(simulation.caps$choice[simulation.caps$id==i & simulation.caps$ambig==0 & simulation.caps$risk==0.5])
+  }
+  
+  f <- ggplot(participant, aes(x=caps, y=risk_choice)) +
+    geom_point() +
+    ggtitle("Choice of risky trials")  
+  
+  print(f)
+}
+
 
 ```
 
