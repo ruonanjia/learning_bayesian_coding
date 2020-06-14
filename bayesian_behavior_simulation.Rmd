@@ -21,7 +21,9 @@ library(ggpubr)
 
 ```
 
-function
+functions
+
+calculate mean and std of data
 ```{r}
 data_summary <- function(data, varname, groupnames){
   # Function to calculate the mean and the standard error
@@ -44,89 +46,6 @@ data_summary <- function(data, varname, groupnames){
   return(data_sum)
 }
 ```
-
-make the task
-```{r}
-risk.uniq <- c(0.13, 0.25, 0.38, 0.5, 0.62, 0.75, 0.87)
-ambig.uniq <- c(0.24, 0.5, 0.74, 1)
-
-value.uniq <- c(5, 6, 7, 8, 10, 12, 14, 16, 19, 23, 27, 31, 37, 44, 52, 61, 73, 86, 101, 120)
-
-rep.times <- 1
-
-# make unique trials with combinations of uncertainty level and value
-risk.level <- c(risk.uniq, rep(0.5, times = length(ambig.uniq))) 
-ambig.level <- c(rep(0, times = length(risk.uniq)), ambig.uniq)
-
-risk.trials <- expand.grid(risk.uniq, value.uniq)
-colnames(risk.trials) <- c("risk", "value")
-risk.trials$ambig <- 0
-
-ambig.trials <- expand.grid(ambig.uniq, value.uniq)
-colnames(ambig.trials) <- c("ambig", "value")
-ambig.trials$risk <- 0.5
-
-all.trials <- rbind(risk.trials, ambig.trials)
-
-# fixed option
-all.trials$risk.fixed <- 1
-all.trials$ambig.fixed <- 0
-all.trials$value.fixed <- 5
-
-# repeat trials
-trials <- data.frame(sapply(all.trials, rep.int, times=rep.times))
-
-# number of trials
-nrow(trials)
-```
-
-Define model
-```{r}
-risk <- trials$risk
-ambig <- trials$ambig
-value <- trials$value
-
-risk.fixed <- trials$risk.fixed
-ambig.fixed <- trials$ambig.fixed
-value.fixed <- trials$value.fixed
-
-# m.choice <- alist(
-#   
-#   choice ~ dbern(1, prob), # sample from bernoulli distribution
-#   prob <- 1 / (1 + exp(slope*(uL-uR))), # choice probablity of the lottery
-#   uL <- (risk - beta * (ambig/2)) * v ^alpha, # subjective value of the lottery
-#   uR <- (risk.ref - beta * (ambig.ref/2)) * v.ref ^alpha, # subjective value of the reference
-#   
-#   # priors
-#   alpha ~ dnorm(1, 1),
-#   beta ~ dnorm(0, 1),
-#   slope ~ dnorm(0, 2)
-# )
-
-```
-
-priors
-```{r}
-set.seed(2020)
-
-# number of samples (imagninary participants)
-n <- 20
-
-# sample parameters from prior
-# risk attitude
-alpha <- rnorm(n, 1, 1)
-# ambiguity attitude
-beta <- rnorm(n, 0, 1)
-# inverse temperature
-slope <- rnorm(n, -2, 3)
-
-# plot
-hist(alpha, nclass =10)
-# dens(alpha, add = TRUE)
-hist(beta, nclass =10)
-hist(slope, nclass =10)
-```
-
 
 Function to simuate choice of n participant
 ```{r}
@@ -159,12 +78,6 @@ simulate_choice <- function(n, trials, alpha, beta, slope) {
   
   return(simulation)
 }
-```
-
-```{r}
-simulation <- simulate_choice(n,trials,alpha,beta,slope)
-View(simulation)
-
 ```
 
 Function to visualize individual subject choice data
@@ -217,99 +130,7 @@ plot_choice <- function(simulation,n) {
 
 ```
 
-Plot inindividual subject's choice
-```{r}
-plot_choice(simulation,n)
-```
-
-
-
-Risk attitude affected by symptoms
-
-Generate participants (CAPS, PTSD symptom)
-```{r}
-set.seed(2020)
-
-# number of participants
-n.p <- 30
-# generate n participants with PTSD symptom severity
-caps <- runif(n.p, min = 0, max = 100)
-# standardize
-caps.z <- scale(caps)
-hist(caps, nclass = 10)
-```
-
-Priors
-```{r}
-# number of simulation
-n.s <- 10
-
-# sample parameters from prior
-
-# risk attitude, affected by CAPS (linear)
-# m <- rnorm(n.s, 1, 1)
-# k <- rnorm(n.s, 0, 1)
-# sigma <- runif(n.s, 0, 1)
-
-m <- rnorm(n.s, 0.5, 0.2)
-k <- -rlnorm(n.s, 0, 0.5)
-sigma <- runif(n.s, 0, 1)
-
-alpha <- matrix(, nrow = n.s, ncol = n.p)
-for (i in 1:n.s){ # number of simulation          
-  miu <- m[i] + k[i]*caps.z
-  for (j in 1:n.p){ # number of participants in each simulation
-    alpha[i,j] <- rnorm(1, miu[j], sigma[i]) 
-  }
-}
-
-# ambiguity attitude
-beta <- matrix(, nrow = n.s, ncol = n.p)
-for (i in 1:n.s) {
-  beta[i, ] <- rnorm(n.p, 0, 1)
-}
-
-
-# inverse temperature
-slope <- matrix(, nrow = n.s, ncol = n.p)
-for (i in 1:n.s) {
-  slope[i, ] <- rnorm(n.p, -3, 1)
-}
-
-# to summarize, there are 5 parameters to generate the choice behavior, and each is assumed a prior
-# m (average of risk attitude), k(linear slope of how CAPS influence alpha), sigma(variace of alpha's)
-# beta (ambiguity attitude), slope (inverse temperature)
-```
-
-Plot priors of k (linear slope of how CAPS influence alpha) and m (average of risk attitude)
-```{r}
-hist(k)
-hist(m)
-```
-
-Plot all simulation
-Risky attitude and caps
-```{r}
-plot(caps, alpha[1,], type = "n",  ylim=c(0, 2), xlim=c(0, 100),ylab = "alpha")
-for (i in 1:n.s){
-  lines(caps, k[i]*caps.z+m[i], col = col.alpha("black", 0.1))
-}
-```
-
-Look at the first simulation
-simulate choice
-```{r}
-sim_idx = 1
-hist(alpha[sim_idx,])
-hist(beta[sim_idx,])
-hist(slope[sim_idx,])
-
-simulation.caps <- simulate_choice(n.p, trials, alpha[sim_idx,], beta[sim_idx,], slope[sim_idx,])
-
-# View(simulation.caps)
-```
-
-Function to plot one simulation 
+Function to plot one simulation (includeing CAPS)
 ```{r}
 plot_choice <- function(simulation,caps) {
   n = length(caps)
@@ -359,6 +180,193 @@ plot_choice <- function(simulation,caps) {
 }
 ```
 
+
+
+make the task
+```{r}
+risk.uniq <- c(0.13, 0.25, 0.38, 0.5, 0.62, 0.75, 0.87)
+ambig.uniq <- c(0.24, 0.5, 0.74, 1)
+
+value.uniq <- c(5, 6, 7, 8, 10, 12, 14, 16, 19, 23, 27, 31, 37, 44, 52, 61, 73, 86, 101, 120)
+
+rep.times <- 1
+
+# make unique trials with combinations of uncertainty level and value
+risk.level <- c(risk.uniq, rep(0.5, times = length(ambig.uniq))) 
+ambig.level <- c(rep(0, times = length(risk.uniq)), ambig.uniq)
+
+risk.trials <- expand.grid(risk.uniq, value.uniq)
+colnames(risk.trials) <- c("risk", "value")
+risk.trials$ambig <- 0
+
+ambig.trials <- expand.grid(ambig.uniq, value.uniq)
+colnames(ambig.trials) <- c("ambig", "value")
+ambig.trials$risk <- 0.5
+
+all.trials <- rbind(risk.trials, ambig.trials)
+
+# fixed option
+all.trials$risk.fixed <- 1
+all.trials$ambig.fixed <- 0
+all.trials$value.fixed <- 5
+
+# repeat trials
+trials <- data.frame(sapply(all.trials, rep.int, times=rep.times))
+
+# number of trials
+nrow(trials)
+```
+
+
+
+Define model
+```{r}
+risk <- trials$risk
+ambig <- trials$ambig
+value <- trials$value
+
+risk.fixed <- trials$risk.fixed
+ambig.fixed <- trials$ambig.fixed
+value.fixed <- trials$value.fixed
+
+# m.choice <- alist(
+#   
+#   choice ~ dbern(1, prob), # sample from bernoulli distribution
+#   prob <- 1 / (1 + exp(slope*(uL-uR))), # choice probablity of the lottery
+#   uL <- (risk - beta * (ambig/2)) * v ^alpha, # subjective value of the lottery
+#   uR <- (risk.ref - beta * (ambig.ref/2)) * v.ref ^alpha, # subjective value of the reference
+#   
+#   # priors
+#   alpha ~ dnorm(1, 1),
+#   beta ~ dnorm(0, 1),
+#   slope ~ dnorm(0, 2)
+# )
+
+```
+
+priors
+```{r}
+set.seed(2020)
+
+# number of samples (imagninary participants)
+n <- 20
+
+# sample parameters from prior
+# risk attitude
+alpha <- rnorm(n, 1, 1)
+# ambiguity attitude
+beta <- rnorm(n, 0, 1)
+# inverse temperature
+slope <- rnorm(n, -2, 3)
+
+# plot
+hist(alpha, nclass =10)
+# dens(alpha, add = TRUE)
+hist(beta, nclass =10)
+hist(slope, nclass =10)
+```
+
+
+
+
+```{r}
+simulation <- simulate_choice(n,trials,alpha,beta,slope)
+View(simulation)
+
+```
+
+
+Plot inindividual subject's choice
+```{r}
+plot_choice(simulation,n)
+```
+
+
+
+Risk attitude affected by symptoms
+
+Generate participants (CAPS, PTSD symptom)
+```{r}
+set.seed(2020)
+
+# number of participants
+n.p <- 30
+# generate n participants with PTSD symptom severity
+caps <- runif(n.p, min = 0, max = 100) # uniform distribution, not really in the real data
+# standardize
+caps.z <- scale(caps)
+hist(caps, nclass = 10)
+```
+
+Priors
+```{r}
+# number of simulation
+n.s <- 10
+
+# sample parameters from prior
+
+# risk attitude, affected by CAPS (linear)
+# m <- rnorm(n.s, 1, 1)
+# k <- rnorm(n.s, 0, 1)
+# sigma <- runif(n.s, 0, 15)
+
+m <- rnorm(n.s, 0.5, 0.2)
+k <- -rlnorm(n.s, 0, 0.5)
+sigma <- runif(n.s, 0, 2)
+
+alpha <- matrix(, nrow = n.s, ncol = n.p)
+for (i in 1:n.s){ # number of simulation          
+  miu <- m[i] + k[i]*caps.z
+  for (j in 1:n.p){ # number of participants in each simulation
+    alpha[i,j] <- rnorm(1, miu[j], sigma[i]) 
+  }
+}
+
+# ambiguity attitude
+beta <- matrix(, nrow = n.s, ncol = n.p)
+for (i in 1:n.s) {
+  beta[i, ] <- rnorm(n.p, 0, 1)
+}
+
+
+# inverse temperature
+slope <- matrix(, nrow = n.s, ncol = n.p)
+for (i in 1:n.s) {
+  slope[i, ] <- rnorm(n.p, -3, 1)
+}
+
+# to summarize, there are 5 parameters to generate the choice behavior, and each is assumed a prior
+# m (average of risk attitude), k(linear slope of how CAPS influence alpha), sigma(variace of alpha's)
+# beta (ambiguity attitude), slope (inverse temperature)
+```
+
+Plot priors of k (linear slope of how CAPS influence alpha) and m (average of risk attitude)
+```{r}
+hist(k)
+hist(m)
+```
+
+Plot all simulation
+Risky attitude and caps
+```{r}
+plot(caps, alpha[1,], type = "n",  ylim=c(0, 2), xlim=c(0, 100),ylab = "alpha")
+for (i in 1:n.s){
+  lines(caps, k[i]*caps.z+m[i], col = col.alpha("black", 0.1))
+}
+```
+
+Look at the first simulation
+simulate choice
+```{r}
+sim_idx = 5
+# hist(alpha[sim_idx,])
+# hist(beta[sim_idx,])
+# hist(slope[sim_idx,])
+# 
+simulation.caps <- simulate_choice(n.p, trials, alpha[sim_idx,], beta[sim_idx,], slope[sim_idx,])
+
+# View(simulation.caps)
+```
 
 Plot the risk attitudes and caps
 ```{r}
