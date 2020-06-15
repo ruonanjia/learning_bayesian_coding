@@ -11,12 +11,13 @@ output: html_notebook
 # install.packages(c("devtools","mvtnorm","loo","coda", "dagitty"))
 # library(devtools)
 # devtools::install_github("rmcelreath/rethinking")
+
+# install.packages("ggpubr")
 ```
 
 ```{r}
 library(rethinking)
 library(ggplot2)
-# install.packages("ggpubr")
 library(ggpubr)
 
 ```
@@ -248,7 +249,7 @@ priors
 ```{r}
 set.seed(2020)
 
-# number of samples (imagninary participants)
+# number of simulations
 n <- 20
 
 # sample parameters from prior
@@ -276,7 +277,7 @@ View(simulation)
 ```
 
 
-Plot inindividual subject's choice
+Plot each simulation's choice
 ```{r}
 plot_choice(simulation,n)
 ```
@@ -390,7 +391,7 @@ ggplot(data = participant, aes(x=caps, y=slope)) +
 
 
 ```{r}
-plot_choice(simulation.caps, caps)
+plot_choice_caps(simulation.caps, caps)
 ```
 
 
